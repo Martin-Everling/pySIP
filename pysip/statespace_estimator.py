@@ -190,7 +190,9 @@ def _unpack_states(states, i) -> States:
     )
 
 
-def _log_likelihood(x0, P0, u, dtu, y, states) -> float:
+def _log_likelihood(
+    x0, P0, u, dtu, y, states, weights, use_outputs: bool
+) -> tuple[float]:
     x = x0
     P = P0
     n_timesteps = y.shape[0]
@@ -204,20 +206,68 @@ def _log_likelihood(x0, P0, u, dtu, y, states) -> float:
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
         if ~np.isnan(y_i).any():
-            x, P, k, S = _update(
+            x_kal, P_kal, k, S = _update(
                 states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
             )
+            if use_outputs:
+                x, P = x_kal, P_kal
+
             if ny == 1:
                 Si = S[0, 0]
                 log_likelihood += (
                     math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
-                )
+                ) * weights[i]
             else:
-                log_likelihood += np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
+                log_likelihood += (
+                    np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
+                ) * weights[i]
         x, P = _predict(
             states_i.A, states_i.B0, states_i.B1, states_i.Q, x, P, u_i, dtu_i
         )
     return log_likelihood
+
+
+def _log_likelihood_with_outputs(
+        x0, P0, u, dtu, y, states, weights, use_outputs: bool
+) -> tuple[float, np.ndarray, np.ndarray]:
+    x_out = np.full((y.shape[0], len(x0)), fill_value=np.nan)
+    P_out = np.full((y.shape[0], *P0.shape), fill_value=np.nan)
+    x = x0
+    P = P0
+    n_timesteps = y.shape[0]
+    ny, nx = states.C.shape
+    dtype = states.A.dtype
+    _Arru = np.zeros((nx + ny, nx + ny), dtype=dtype)
+    log_likelihood = 0.5 * n_timesteps * math.log(2.0 * math.pi)
+    for i in range(n_timesteps):
+        y_i = np.ascontiguousarray(y)[i].reshape(-1, 1)
+        u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
+        dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
+        states_i = _unpack_states(states, i)
+        if ~np.isnan(y_i).any():
+            x_kal, P_kal, k, S = _update(
+                states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
+            )
+            if use_outputs:
+                x, P = x_kal, P_kal
+
+            if ny == 1:
+                Si = S[0, 0]
+                log_likelihood += (
+                    math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
+                ) * weights[i]
+            else:
+                log_likelihood += (
+                    np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
+                ) * weights[i]
+        # Store step
+        x_out[i, :] = x.flatten()
+        P_out[i, :] = P0
+        # Calculate next step
+        x, P = _predict(
+            states_i.A, states_i.B0, states_i.B1, states_i.Q, x, P, u_i, dtu_i
+        )
+    return log_likelihood, x_out, P_out
 
 
 def _filtering(x0, P0, u, dtu, y, states) -> KalmanResult:
@@ -357,6 +407,20 @@ class KalmanQR:
         P0 = P0 if P0 is not None else ss.P0
         return tuple([x0, P0, *vars, states])
 
+    @staticmethod
+    def _validate_weights(weights, n):
+        # Provide a non-None default
+        if weights is None:
+            weights = np.full((n), fill_value=1.0)
+        # Check and return
+        if len(weights) != n:
+            raise ValueError(
+                'The provided weights are not the same length as the time array.'
+            )
+        if len(weights.shape) != 1:
+            raise ValueError('The provided weights should be 1D.')
+        return weights
+
     def update(
         self,
         x: np.ndarray,
@@ -441,6 +505,10 @@ class KalmanQR:
         u: pd.DataFrame,
         dtu: pd.DataFrame,
         y: pd.DataFrame,
+        x0: np.ndarray | None = None,
+        P0: np.ndarray | None = None,
+        weights: np.ndarray | None = None,
+        use_outputs: bool = True,
     ) -> float:
         """Compute the log-likelihood of the model.
 
@@ -454,6 +522,16 @@ class KalmanQR:
             Time derivative of the output vector.
         y : pd.DataFrame
             Measurement (or observation) vector.
+        x0 : numpy.ndarray, optional
+            Initial state. If not provided, the initial state is taken from the
+            state-space model.
+        P0 : numpy.ndarray, optional
+            Initial state covariance. If not provided, the initial state covariance is
+            taken from the state-space model.
+        weights : numpy.ndarray, optional
+            Optionally provide weights over time
+        use_outputs : bool, optional
+            If True, the outputs are used to do the estimation. Default is True.
 
         Returns
         -------
@@ -462,9 +540,61 @@ class KalmanQR:
         """
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
-            x0, P0, u, dtu, y, states = self._proxy_params(dt, (u, dtu, y))
+            x0, P0, u, dtu, y, states = self._proxy_params(dt, (u, dtu, y), x0, P0)
+            weights = self._validate_weights(weights, len(u))
+            return _log_likelihood(x0, P0, u, dtu, y, states, weights, use_outputs)
 
-            return _log_likelihood(x0, P0, u, dtu, y, states)
+    def log_likelihood_with_outputs(
+        self,
+        dt: pd.Series,
+        u: pd.DataFrame,
+        dtu: pd.DataFrame,
+        y: pd.DataFrame,
+        x0: np.ndarray | None = None,
+        P0: np.ndarray | None = None,
+        weights: np.ndarray | None = None,
+        use_outputs: bool = True,
+    ) -> tuple[float, np.ndarray, np.ndarray]:
+        """Compute the log-likelihood of the model.
+
+        Parameters
+        ----------
+        dt : pd.Series
+            Time steps.
+        u : pd.DataFrame
+            Output (or exogeneous) vector.
+        dtu : pd.DataFrame
+            Time derivative of the output vector.
+        y : pd.DataFrame
+            Measurement (or observation) vector.
+        x0 : numpy.ndarray, optional
+            Initial state. If not provided, the initial state is taken from the
+            state-space model.
+        P0 : numpy.ndarray, optional
+            Initial state covariance. If not provided, the initial state covariance is
+            taken from the state-space model.
+        weights : numpy.ndarray, optional
+            Optionally provide weights over time
+        use_outputs : bool, optional
+            If True, the outputs are used to do the estimation. Default is True.
+
+        Returns
+        -------
+        float
+            Log-likelihood of the model.
+        numpy.ndarray
+            The predicted states over time
+        numpy.ndarray
+            The predicted covariance matrix over time
+
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
+            x0, P0, u, dtu, y, states = self._proxy_params(dt, (u, dtu, y), x0, P0)
+            weights = self._validate_weights(weights, len(u))
+            return _log_likelihood_with_outputs(
+                x0, P0, u, dtu, y, states, weights, use_outputs
+            )
 
     def filtering(
         self,

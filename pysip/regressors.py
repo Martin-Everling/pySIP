@@ -273,9 +273,71 @@ class Regressor:
         estimator.ss.parameters.eta_free = eta
         log_likelihood = estimator.log_likelihood(dt, u, dtu, y)
         log_posterior = (
-            log_likelihood
-            - estimator.ss.parameters.prior
-            + estimator.ss.parameters.penalty
+                log_likelihood
+                - estimator.ss.parameters.prior
+                + estimator.ss.parameters.penalty
+        )
+
+        return log_posterior
+
+    def _target_n_step(
+        self,
+        eta: np.ndarray,
+        dt: np.ndarray,
+        u: np.ndarray,
+        dtu: np.ndarray,
+        y: np.ndarray,
+        k_simulations: int,
+        n_simulation: int,
+        simulation_weights: np.ndarray | None,
+    ) -> float:
+        """Evaluate the negative log-posterior
+
+        Parameters
+        ----------
+        eta : array_like, shape (n_eta, )
+            Unconstrained parameters
+        dt : float
+            Sampling time
+        u : array_like, shape (n_u, n_steps)
+            Input data
+        dtu : array_like, shape (n_u, n_steps)
+            Forward finite difference of the input data
+        y : array_like, shape (n_y, n_steps)
+            Output data
+
+        Returns
+        -------
+        log_posterior : float
+            The negative log-posterior
+        """
+        # First run the full system
+        estimator = deepcopy(self.estimator)
+        estimator.ss.parameters.eta_free = eta
+        log_likelihood, x, P = estimator.log_likelihood_with_outputs(dt, u, dtu, y)
+
+        # Handle the simulations
+        i_start_simulations \
+            = np.floor(np.linspace(0, len(y)-n_simulation, k_simulations)).astype(int)
+        for i_simulation in range(k_simulations):
+            i_start_sim = i_start_simulations[i_simulation]
+            i_end_sim = i_start_sim + n_simulation
+
+            log_likelihood += estimator.log_likelihood(
+                dt.iloc[i_start_sim:i_end_sim],
+                u.iloc[i_start_sim:i_end_sim],
+                dtu.iloc[i_start_sim:i_end_sim],
+                y.iloc[i_start_sim:i_end_sim],
+                x[i_start_sim, :].reshape([-1, 1]),
+                P[i_start_sim, :],
+                weights=simulation_weights,
+                use_outputs=False,
+            )
+
+        log_posterior = (
+                log_likelihood
+                - estimator.ss.parameters.prior
+                + estimator.ss.parameters.penalty
         )
 
         return log_posterior
@@ -289,6 +351,9 @@ class Regressor:
         hpd: float = 0.95,
         jac="3-point",
         method="BFGS",
+        k_simulations: Optional[int] = None,
+        n_simulation: Optional[int] = None,
+        simulation_weights: Optional[np.ndarray] = None,
         **minimize_options,
     ) -> Union[pd.DataFrame, pd.DataFrame, dict]:
         """Estimate the parameters of the state-space model.
@@ -314,6 +379,13 @@ class Regressor:
             - 'value': initialize the parameters to the given values
         hpd : float, optional
             Highest posterior density interval. Used only when `init='prior'`.
+        k_simulations: int, optional
+            Optionally, the amount of simulations to include in the target function
+        n_simulation: int, optional
+            Optionally, the simulation length for all simulations in the target function
+        simulation_weights: numpy.ndarray, optional
+            Optionally, provide weights for the simulations, e.g. a decreasing weight
+            over the simulation steps.
         minimize_options : dict, optional
             Options for the minimization method. See `scipy.optimize.minimize` for
             details. Compared to the original `scipy.optimize.minimize` function, the
@@ -346,14 +418,30 @@ class Regressor:
         self.parameters.eta_free = self.parameters.init_parameters(1, init, hpd)
         data = self.prepare_data(df)
 
-        results = minimize(
-            fun=self._target,
-            x0=self.parameters.eta_free,
-            args=data,
-            method=method,
-            jac=jac,
-            options=minimize_options,
-        )
+        if k_simulations is None and n_simulation is None:
+            results = minimize(
+                fun=self._target,
+                x0=self.parameters.eta_free,
+                args=data,
+                method=method,
+                jac=jac,
+                options=minimize_options,
+            )
+        elif k_simulations is not None and n_simulation is not None:
+            args = (*data, k_simulations, n_simulation, simulation_weights)
+            results = minimize(
+                fun=self._target_n_step,
+                x0=self.parameters.eta_free,
+                args=args,
+                method=method,
+                jac=jac,
+                options=minimize_options,
+            )
+        else:
+            raise KeyError('Please provide both a number of simulations '
+                           '"k_simulations" and the simulation length "n_simulation" '
+                           'arguments when including simulations in the target '
+                           'function.')
 
         self.parameters.eta_free = results.x
         # inverse jacobian of the transform eta = f(theta)
