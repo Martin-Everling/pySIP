@@ -290,6 +290,7 @@ class Regressor:
         k_simulations: int,
         n_simulation: int,
         simulation_weights: np.ndarray | None,
+        alpha: float | None = None
     ) -> float:
         """Evaluate the negative log-posterior
 
@@ -311,6 +312,10 @@ class Regressor:
         log_posterior : float
             The negative log-posterior
         """
+        # Determine default alpha (weighting factor prediction versus simulations)
+        if alpha is None:
+            alpha = len(y) / (len(y) + k_simulations * n_simulation)
+
         # First run the full system
         estimator = deepcopy(self.estimator)
         estimator.ss.parameters.eta_free = eta
@@ -319,11 +324,12 @@ class Regressor:
         # Handle the simulations
         i_start_simulations \
             = np.floor(np.linspace(0, len(y)-n_simulation, k_simulations)).astype(int)
+        log_likelihood_simulations = np.zeros((k_simulations))
         for i_simulation in range(k_simulations):
             i_start_sim = i_start_simulations[i_simulation]
             i_end_sim = i_start_sim + n_simulation
 
-            log_likelihood += estimator.log_likelihood(
+            log_likelihood_simulations[i_simulation] += estimator.log_likelihood(
                 dt.iloc[i_start_sim:i_end_sim],
                 u.iloc[i_start_sim:i_end_sim],
                 dtu.iloc[i_start_sim:i_end_sim],
@@ -333,6 +339,7 @@ class Regressor:
                 weights=simulation_weights,
                 use_outputs=False,
             )
+        log_likelihood = log_likelihood * alpha + (1-alpha) * np.mean(log_likelihood_simulations)
 
         log_posterior = (
                 log_likelihood
@@ -354,6 +361,7 @@ class Regressor:
         k_simulations: Optional[int] = None,
         n_simulation: Optional[int] = None,
         simulation_weights: Optional[np.ndarray] = None,
+        alpha: float | None = None,
         **minimize_options,
     ) -> Union[pd.DataFrame, pd.DataFrame, dict]:
         """Estimate the parameters of the state-space model.
@@ -428,7 +436,7 @@ class Regressor:
                 options=minimize_options,
             )
         elif k_simulations is not None and n_simulation is not None:
-            args = (*data, k_simulations, n_simulation, simulation_weights)
+            args = (*data, k_simulations, n_simulation, simulation_weights, alpha)
             results = minimize(
                 fun=self._target_n_step,
                 x0=self.parameters.eta_free,

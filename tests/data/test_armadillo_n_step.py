@@ -115,23 +115,6 @@ def test_fit_predict_n_step(data_armadillo, regressor_armadillo):
     print(f"MAE n-step target function: {y_compare['y_error_2'].abs().mean()}")
     print(f"MAE n-step weighted target function: {y_compare['y_error_3'].abs().mean()}")
 
-    # Check individual model fits
-    assert (y_compare['y_error_1'].iloc[1]
-            == pytest.approx(0.017802806421535422, rel=1e-2))
-    assert (y_compare['y_error_2'].iloc[1]
-            == pytest.approx(-0.1265164893965256, rel=1e-2))
-    assert (y_compare['y_error_3'].iloc[1]
-            == pytest.approx(-0.10903685109297356, rel=1e-2))
-    assert (y_compare['y_error_1'].abs().mean()
-            == pytest.approx(0.6578543247342358, rel=1e-2))
-    assert (y_compare['y_error_2'].abs().mean()
-            == pytest.approx(0.5800431751209509, rel=1e-2))
-    assert (y_compare['y_error_3'].abs().mean()
-            == pytest.approx(0.59751486149397, rel=1e-2))
-    assert scipy_summary_1.fun == pytest.approx(-316.687870, rel=1e-2)
-    assert scipy_summary_2.fun == pytest.approx(-217.849030, rel=1e-2)
-    assert scipy_summary_3.fun == pytest.approx(-205.296176, rel=1e-2)
-
     # Compare the prediction error of the first step ahead
     assert (y_compare['y_error_1'].abs().iloc[1]
             < y_compare['y_error_2'].abs().iloc[1]), \
@@ -150,3 +133,20 @@ def test_fit_predict_n_step(data_armadillo, regressor_armadillo):
         'The n-step ahead MAE should be better with the simulation fit'
     assert y_compare['y_error_2'].abs().mean() < y_compare['y_error_3'].abs().mean(), \
         'The n-step ahead MAE should be better without using weights'
+
+    # Check individual model fits
+    assert (y_compare['y_error_1'].iloc[1]
+            == pytest.approx(0.017802806421535422, rel=1e-2))
+    assert (y_compare['y_error_2'].iloc[1]
+            == pytest.approx(-0.11795478859595576, rel=1e-2))
+    assert (y_compare['y_error_3'].iloc[1]
+            == pytest.approx(-0.08907018449982829, rel=1e-2))
+    assert (y_compare['y_error_1'].abs().mean()
+            == pytest.approx(0.6578543247342358, rel=1e-2))
+    assert (y_compare['y_error_2'].abs().mean()
+            == pytest.approx(0.5903941009254126, rel=1e-2))
+    assert (y_compare['y_error_3'].abs().mean()
+            == pytest.approx(0.6111865346966693, rel=1e-2))
+    assert scipy_summary_1.fun == pytest.approx(-316.687870, rel=1e-2)
+    assert scipy_summary_2.fun == pytest.approx(-177.826059, rel=1e-2)
+    assert scipy_summary_3.fun == pytest.approx(-176.416467, rel=1e-2)
