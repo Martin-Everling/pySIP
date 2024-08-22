@@ -148,12 +148,25 @@ def _update(
     _Arru[ny:, ny:] = P
     _, r_fact = np.linalg.qr(_Arru)
     S = r_fact[:ny, :ny]
-    if ny == 1:
-        k = (y - C @ x - D @ u) / S[0, 0]
-        x = x + r_fact[:1, 1:].T * k
+    # Handle NaNs in y
+    valid_mask = ~np.isnan(y).flatten()
+    if np.any(valid_mask) and not np.all(valid_mask):
+        # If any valid, but not all => Only update according to available measurements
+        C_valid = C[valid_mask]
+        D_valid = D[valid_mask]
+        S_valid = S[np.ix_(valid_mask, valid_mask)]
+        y_valid = y[valid_mask]
+        k = _solve_triu_inplace(S_valid, y_valid - C_valid @ x - D_valid @ u)
+        x = x + r_fact[:ny, ny:].T[:, valid_mask] @ k
     else:
-        k = _solve_triu_inplace(S, y - C @ x - D @ u)
-        x = x + r_fact[:ny, ny:].T @ k
+        # In any other case, just continue (NaN values will propagate in x and k)
+        if ny == 1:
+            k = (y - C @ x - D @ u) / S[0, 0]
+            x = x + r_fact[:1, 1:].T * k
+        else:
+            k = _solve_triu_inplace(S, y - C @ x - D @ u)
+            x = x + r_fact[:ny, ny:].T @ k
+
     P = r_fact[ny:, ny:]
     return x, P, k, S
 
@@ -206,22 +219,21 @@ def _log_likelihood(
         u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
-        if ~np.isnan(y_i).any():
-            x_kal, P_kal, k, S = _update(
-                states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
-            )
-            if use_outputs:
-                x, P = x_kal, P_kal
+        x_kal, P_kal, k, S = _update(
+            states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
+        )
+        if use_outputs and ~np.isnan(x_kal).any() and ~np.isnan(P_kal).any():
+            x, P = x_kal, P_kal
 
-            if ny == 1:
-                Si = S[0, 0]
-                log_likelihood += (
-                    math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
-                ) * weights[i]
-            else:
-                log_likelihood += (
-                    np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
-                ) * weights[i]
+        if ny == 1:
+            Si = S[0, 0]
+            log_likelihood += (
+                math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
+            ) * weights[i]
+        else:
+            log_likelihood += (
+                np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
+            ) * weights[i]
         x, P = _predict(
             states_i.A, states_i.B0, states_i.B1, states_i.Q, x, P, u_i, dtu_i
         )
@@ -245,22 +257,21 @@ def _log_likelihood_with_outputs(
         u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
-        if ~np.isnan(y_i).any():
-            x_kal, P_kal, k, S = _update(
-                states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
-            )
-            if use_outputs:
-                x, P = x_kal, P_kal
+        x_kal, P_kal, k, S = _update(
+            states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
+        )
+        if use_outputs and ~np.isnan(x_kal).any() and ~np.isnan(P_kal).any():
+            x, P = x_kal, P_kal
 
-            if ny == 1:
-                Si = S[0, 0]
-                log_likelihood += (
-                    math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
-                ) * weights[i]
-            else:
-                log_likelihood += (
-                    np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
-                ) * weights[i]
+        if ny == 1:
+            Si = S[0, 0]
+            log_likelihood += (
+                math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
+            ) * weights[i]
+        else:
+            log_likelihood += (
+                np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
+            ) * weights[i]
         # Store step
         x_out[i, :] = x.flatten()
         P_out[i, :] = P0
