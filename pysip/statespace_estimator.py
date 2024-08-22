@@ -151,10 +151,11 @@ def _update(
     # Handle NaNs in y
     valid_mask = ~np.isnan(y).flatten()
     if np.any(valid_mask) and not np.all(valid_mask):
+        valid_indices = np.nonzero(valid_mask)[0]
         # If any valid, but not all => Only update according to available measurements
         C_valid = C[valid_mask]
         D_valid = D[valid_mask]
-        S_valid = S[np.ix_(valid_mask, valid_mask)]
+        S_valid = S[valid_indices][:, valid_indices]
         y_valid = y[valid_mask]
         k = _solve_triu_inplace(S_valid, y_valid - C_valid @ x - D_valid @ u)
         x = x + r_fact[:ny, ny:].T[:, valid_mask] @ k
