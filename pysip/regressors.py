@@ -447,7 +447,7 @@ class Regressor:
         elif k_simulations is not None and n_simulation is not None:
             args = (*data, include_prior, include_penalty, k_simulations, n_simulation,
                     simulation_weights, alpha)
-            target =self._target_n_step,
+            target = self._target_n_step
         else:
             raise KeyError('Please provide both a number of simulations '
                            '"k_simulations" and the simulation length "n_simulation" '
