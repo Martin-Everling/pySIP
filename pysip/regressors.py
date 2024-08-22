@@ -14,6 +14,7 @@ import pymc as pm
 import pytensor.tensor as pt
 import xarray as xr
 from scipy.optimize import approx_fprime, minimize
+import scipy.optimize as scipy_optimize
 
 from .params.parameters import Parameters
 from .statespace.base import StateSpace
@@ -248,6 +249,8 @@ class Regressor:
         u: np.ndarray,
         dtu: np.ndarray,
         y: np.ndarray,
+        include_prior,
+        include_penalty,
     ) -> float:
         """Evaluate the negative log-posterior
 
@@ -272,11 +275,13 @@ class Regressor:
         estimator = deepcopy(self.estimator)
         estimator.ss.parameters.eta_free = eta
         log_likelihood = estimator.log_likelihood(dt, u, dtu, y)
-        log_posterior = (
-                log_likelihood
-                - estimator.ss.parameters.prior
-                + estimator.ss.parameters.penalty
-        )
+
+        # Determine log posterior
+        log_posterior = log_likelihood
+        if include_prior:
+            log_posterior -= estimator.ss.parameters.prior
+        if include_penalty:
+            log_posterior += estimator.ss.parameters.penalty
 
         return log_posterior
 
@@ -287,6 +292,8 @@ class Regressor:
         u: np.ndarray,
         dtu: np.ndarray,
         y: np.ndarray,
+        include_prior,
+        include_penalty,
         k_simulations: int,
         n_simulation: int,
         simulation_weights: np.ndarray | None,
@@ -339,13 +346,16 @@ class Regressor:
                 weights=simulation_weights,
                 use_outputs=False,
             )
-        log_likelihood = log_likelihood * alpha + (1-alpha) * np.mean(log_likelihood_simulations)
-
-        log_posterior = (
-                log_likelihood
-                - estimator.ss.parameters.prior
-                + estimator.ss.parameters.penalty
+        log_likelihood = (
+                log_likelihood * alpha + (1-alpha) * np.mean(log_likelihood_simulations)
         )
+
+        # Determine log posterior
+        log_posterior = log_likelihood
+        if include_prior:
+            log_posterior -= estimator.ss.parameters.prior
+        if include_penalty:
+            log_posterior += estimator.ss.parameters.penalty
 
         return log_posterior
 
@@ -358,6 +368,10 @@ class Regressor:
         hpd: float = 0.95,
         jac="3-point",
         method="BFGS",
+        optimizer: Optional[str] = None,
+        optimizer_kwargs: Optional[dict] = None,
+        include_prior: bool = True,
+        include_penalty: bool = True,
         k_simulations: Optional[int] = None,
         n_simulation: Optional[int] = None,
         simulation_weights: Optional[np.ndarray] = None,
@@ -426,51 +440,145 @@ class Regressor:
         self.parameters.eta_free = self.parameters.init_parameters(1, init, hpd)
         data = self.prepare_data(df)
 
+        # Set arguments and target function
         if k_simulations is None and n_simulation is None:
-            results = minimize(
-                fun=self._target,
-                x0=self.parameters.eta_free,
-                args=data,
-                method=method,
-                jac=jac,
-                options=minimize_options,
-            )
+            args = (*data, include_prior, include_penalty)
+            target = self._target
         elif k_simulations is not None and n_simulation is not None:
-            args = (*data, k_simulations, n_simulation, simulation_weights, alpha)
-            results = minimize(
-                fun=self._target_n_step,
-                x0=self.parameters.eta_free,
-                args=args,
-                method=method,
-                jac=jac,
-                options=minimize_options,
-            )
+            args = (*data, include_prior, include_penalty, k_simulations, n_simulation,
+                    simulation_weights, alpha)
+            target =self._target_n_step,
         else:
             raise KeyError('Please provide both a number of simulations '
                            '"k_simulations" and the simulation length "n_simulation" '
                            'arguments when including simulations in the target '
                            'function.')
 
+        # Minimize/Optimize
+        if optimizer_kwargs is None:
+            optimizer_kwargs = {}
+        if optimizer is None:
+            results = minimize(
+                fun=target,
+                x0=self.parameters.eta_free,
+                args=args,
+                method=method,
+                jac=jac,
+                options=minimize_options,
+            )
+        elif optimizer.lower() == "shgo":
+            # Advised is to run shgo only with all parameters bounded and "L-BFGS-B"
+            all_bounded = all([all([b is not None for b in p.bounds])
+                               for p in self.parameters.parameters_free])
+            if not all_bounded:
+                raise KeyError(
+                    "Please make sure all parameters are bounded when running shgo."
+                )
+            bounds = [(-1e1, 1e1) for _ in self.parameters.eta_free]
+            # Advised is to use "L-BFGS-B" when running
+            bounded_methods = ["nelder-mead", "l-bfgs-b", "tnc", "slsqp", "powell"]
+            if not any([method.lower() == _method for _method in bounded_methods]):
+                raise KeyError(
+                    f"Please make sure the minimization method is bounded when"
+                    f" running shgo, any of: {bounded_methods}."
+                )
+
+            # Set defaults
+            optimizer_kwargs["sampling_method"] \
+                = optimizer_kwargs.get("sampling_method", "sobol")
+            # Run
+            min_kwargs = {"method": method, "jac": jac, "options": minimize_options}
+            results_opt = scipy_optimize.shgo(
+                func=target,
+                bounds=bounds,
+                args=args,
+                minimizer_kwargs=min_kwargs,
+                **optimizer_kwargs
+            )
+            results = minimize(
+                fun=target,
+                x0=results_opt.x,
+                args=args,
+                method=method,
+                jac=jac,
+                bounds=bounds,
+                options=minimize_options,
+            )
+        elif optimizer.lower() == "dual_annealing":
+            # Set defaults
+            optimizer_kwargs["maxiter"] = optimizer_kwargs.get("maxiter", 100)
+            optimizer_kwargs["maxfun"] = optimizer_kwargs.get("maxfun", 1e4)
+            # Run
+            min_kwargs = {"method": method, "jac": jac, "options": minimize_options}
+            results_opt = scipy_optimize.dual_annealing(
+                func=target,
+                bounds=[(-1e50, 1e50) for _ in self.parameters.eta_free],
+                args=args,
+                x0=self.parameters.eta_free,
+                minimizer_kwargs=min_kwargs,
+                **optimizer_kwargs
+            )
+            results = minimize(
+                fun=target,
+                x0=results_opt.x,
+                args=args,
+                method=method,
+                jac=jac,
+                options=minimize_options,
+            )
+        elif optimizer.lower() == "basinhopping":
+            # Set defaults
+            optimizer_kwargs["niter"] = optimizer_kwargs.get("niter", 10)
+            # Run
+            min_kwargs = {
+                "args": args, "method": method, "jac": jac, "options": minimize_options
+            }
+            results_opt = scipy_optimize.basinhopping(
+                func=target,
+                x0=self.parameters.eta_free,
+                minimizer_kwargs=min_kwargs,
+                **optimizer_kwargs
+            )
+            results = results_opt.lowest_optimization_result
+        else:
+            raise KeyError()
+
         self.parameters.eta_free = results.x
-        # inverse jacobian of the transform eta = f(theta)
-        inv_jac = np.diag(1.0 / np.array(self.parameters.eta_jacobian))
 
-        # covariance matrix in the constrained space (e.g. theta)
-        cov_theta = inv_jac @ results.hess_inv @ inv_jac
+        if hasattr(results, "hess_inv"):
+            hess_inv = results.hess_inv
+            if not isinstance(hess_inv, np.ndarray):
+                hess_inv = hess_inv.todense()
 
-        # standard deviation of the constrained parameters
-        sig_theta = np.sqrt(np.diag(cov_theta)) * self.parameters.scale
-        inv_sig_theta = np.diag(1.0 / np.sqrt(np.diag(cov_theta)))
+            # inverse jacobian of the transform eta = f(theta)
+            inv_jac = np.diag(1.0 / np.array(self.parameters.eta_jacobian))
 
-        # correlation matrix of the constrained parameters
-        corr_matrix = inv_sig_theta @ cov_theta @ inv_sig_theta
+            # covariance matrix in the constrained space (e.g. theta)
+            cov_theta = inv_jac @ hess_inv @ inv_jac
+
+            # standard deviation of the constrained parameters
+            sig_theta = np.sqrt(np.diag(cov_theta)) * self.parameters.scale
+            sig_theta_test = ttest(self.parameters.theta_free, sig_theta, len(data[0]))
+            inv_sig_theta = np.diag(1.0 / np.sqrt(np.diag(cov_theta)))
+
+            # correlation matrix of the constrained parameters
+            corr_matrix = inv_sig_theta @ cov_theta @ inv_sig_theta
+        else:
+            sig_theta = [np.nan for _ in self.parameters.theta_free]
+            sig_theta_test = [np.nan for _ in self.parameters.theta_free]
+            corr_matrix = np.nan
+        if hasattr(results, "jac"):
+            jac = results.jac
+        else:
+            jac = [np.nan for _ in self.parameters.theta_free]
+
         df = pd.DataFrame(
             data=np.vstack(
                 [
                     self.parameters.theta_free,
                     sig_theta,
-                    ttest(self.parameters.theta_free, sig_theta, len(data[0])),
-                    np.abs(results.jac),
+                    sig_theta_test,
+                    np.abs(jac),
                     np.abs(self.parameters.d_penalty),
                 ]
             ).T,

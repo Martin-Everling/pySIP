@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,7 +30,7 @@ def parameters_armadillo():
         dict(name="Ci", scale=1e6 / sT, bounds=(0, None), prior=LogNormal(1, 1)),
         dict(
             name="sigw_w",
-            scale=1e-2 * sT**0.5,
+            scale=1e-2 * sT ** 0.5,
             bounds=(0, None),
             prior=LogNormal(1, 1),
         ),
@@ -42,18 +44,54 @@ def parameters_armadillo():
 
 
 @pytest.fixture
+def parameters_armadillo_bounded():
+    sT = 3600.0 * 24.0
+    return [
+        dict(name="Ro", scale=1e-2, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Ri", scale=1e-3, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Cw", scale=1e7 / sT, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Ci", scale=1e6 / sT, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(
+            name="sigw_w",
+            scale=1e-2 * sT**0.5,
+            bounds=(0.1, 100.0),
+            prior=LogNormal(1, 1),
+        ),
+        dict(name="sigw_i", value=0, transform="fixed"),
+        dict(name="sigv", scale=1e-2, bounds=(0.1, 100.0), prior=LogNormal(1, 1)),
+        dict(name="x0_w", loc=25, scale=5, bounds=(0.1, 10.0), prior=Normal(0, 1)),
+        dict(name="x0_i", value=26.701, transform="fixed"),
+        dict(name="sigx0_w", value=1, transform="fixed"),
+        dict(name="sigx0_i", value=0.1, transform="fixed"),
+    ]
+
+
+@pytest.fixture
 def statespace_armadillo(parameters_armadillo):
     return TwTi_RoRi(parameters_armadillo, hold_order=1)
 
 
 @pytest.fixture
-def regressor_armadillo(statespace_armadillo: Regressor):
+def regressor_armadillo(statespace_armadillo: TwTi_RoRi):
     return Regressor(
         ss=statespace_armadillo, outputs="T_int", inputs=["T_ext", "P_hea"]
     )
 
 
+@pytest.fixture
+def statespace_armadillo_bounded(parameters_armadillo_bounded):
+    return TwTi_RoRi(parameters_armadillo_bounded, hold_order=1)
+
+
+@pytest.fixture
+def regressor_armadillo_bounded(statespace_armadillo_bounded: TwTi_RoRi):
+    return Regressor(
+        ss=statespace_armadillo_bounded, outputs="T_int", inputs=["T_ext", "P_hea"]
+    )
+
+
 def test_fit_predict(data_armadillo, regressor_armadillo):
+    regressor_armadillo = copy.deepcopy(regressor_armadillo)
     summary, corr, scipy_summary = regressor_armadillo.fit(
         df=data_armadillo,
     )
@@ -86,3 +124,25 @@ def test_fit_predict(data_armadillo, regressor_armadillo):
     assert res.mean() == pytest.approx(0, abs=5e-2)
     assert check_ccf(*ccf(res))[0]
     assert check_cpgram(*cpgram(res))[0]
+
+
+def test_fit_predict_shgo(data_armadillo, regressor_armadillo_bounded):
+    regressor_armadillo = copy.deepcopy(regressor_armadillo_bounded)
+    summary, corr, scipy_summary = regressor_armadillo.fit(
+        df=data_armadillo, optimizer="shgo", method="L-BFGS-B",
+    )
+    assert scipy_summary.fun == pytest.approx(-316.68688278425225, rel=1e-2)
+
+def test_fit_predict_dual_annealing(data_armadillo, regressor_armadillo):
+    regressor_armadillo = copy.deepcopy(regressor_armadillo)
+    summary, corr, scipy_summary = regressor_armadillo.fit(
+        df=data_armadillo, optimizer="dual_annealing"
+    )
+    assert scipy_summary.fun == pytest.approx(-316.68812014562525, rel=1e-2)
+
+def test_fit_predict_basinhopping(data_armadillo, regressor_armadillo):
+    regressor_armadillo = copy.deepcopy(regressor_armadillo)
+    summary, corr, scipy_summary = regressor_armadillo.fit(
+        df=data_armadillo, optimizer="basinhopping"
+    )
+    assert scipy_summary.fun == pytest.approx(-316.68812014562525, rel=1e-2)
