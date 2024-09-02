@@ -368,8 +368,8 @@ def _estimate_output(x0, P0, u, dtu, y, states) -> OutputEstimateResult:
 # Check if the environment variable to disable JIT is set
 disable_jit = os.getenv("PYSIP_DISABLE_NUMBA", "0")  # Default is "0" (JIT enabled)
 if disable_jit != "1":
-    # All above will be jitted by numba, if available. Otherwise, the pure python / numpy
-    # implementation will be used.
+    # All above will be jitted by numba, if available. Otherwise, the pure
+    # python / numpy implementation will be used.
     try:
         from numba import jit_module
 
@@ -377,7 +377,8 @@ if disable_jit != "1":
     except ImportError:
         warnings.warn("Numba not installed, using pure python implementation")
 else:
-    warnings.warn("Numba JIT disabled by environment variable, using pure python implementation")
+    warnings.warn("Numba JIT disabled by environment variable, "
+                  "using pure python implementation")
 
 @dataclass
 class KalmanQR:
