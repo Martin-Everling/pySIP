@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import pytest
 
@@ -120,3 +122,16 @@ def test_unknown_parameter(parameters):
     parameters.set_parameter("lol", value=-1.0)
 
     assert "lol" not in parameters._parameters
+
+
+def test_fix_free(parameters):
+    print(parameters.free)
+    new_parameters = copy.deepcopy(parameters)
+    new_parameters.fix_parameters(['a', 'b'])
+    new_parameters.set_parameter('a', transform='fixed')
+
+    assert parameters.free == [True, True, True]
+    assert new_parameters.free == [False, False, True]
+
+    new_parameters.free_parameters(['a'])
+    assert new_parameters.free == [True, False, True]

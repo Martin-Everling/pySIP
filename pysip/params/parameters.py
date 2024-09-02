@@ -6,6 +6,7 @@ from flatten_dict.reducers import make_reducer
 import numpy as np
 
 from .parameter import Parameter
+from .transforms import FixedTransform
 
 
 def _coerce_params(parameters: Union[List[str], List[dict]]) -> List[dict]:
@@ -359,3 +360,15 @@ class Parameters:
                 eta0[:, n] = self.eta_free
 
         return np.squeeze(eta0)
+
+    def fix_parameters(self, parameters: list[str]):
+        """ Sets a given list of parameter names to fixed. """
+        for parameter_name in parameters:
+            self.set_parameter(parameter_name, fixed=True)
+
+    def free_parameters(self, parameters: list[str]):
+        """ Sets a given list of parameter names to free. """
+        for parameter_name in parameters:
+            self.set_parameter(parameter_name, fixed=False)
+            if isinstance(self._parameters[parameter_name].transform, FixedTransform):
+                self.set_parameter(parameter_name, transform="none")

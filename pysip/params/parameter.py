@@ -53,6 +53,7 @@ class Parameter:
         "auto", "fixed", "none", "log", "lower", "upper", "logit"
     ] = "auto"
     prior: BasePrior = None
+    fixed: bool = False
 
     @validator("bounds")
     def _validate_bounds(cls, bounds):
@@ -79,6 +80,10 @@ class Parameter:
             raise ValueError(
                 f"Initial value {self.value} is out of bounds {self.bounds}"
             )
+
+    @property
+    def transform_fixed(self):
+        return FixedTransform(self.bounds)
 
     @property
     def theta(self) -> float:
@@ -111,7 +116,7 @@ class Parameter:
 
     @property
     def free(self) -> bool:
-        return not isinstance(self.transform, FixedTransform)
+        return not self.fixed and not isinstance(self.transform, FixedTransform)
 
     def get_transformed(self):
         """Do inverse transformation θsd = f^{-1}(η)"""
