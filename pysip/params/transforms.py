@@ -351,9 +351,9 @@ def auto_transform(bounds):
         return Transforms.get("none")(bounds)
     if lb == 0.0 and ub is None:
         return Transforms.get("log")(bounds)
-    if ub is None and lb > 0.0:
+    if ub is None and lb != 0.0:
         return Transforms.get("lower")(bounds)
-    if lb is None and ub > 0.0:
+    if lb is None and ub != 0.0:
         return Transforms.get("upper")(bounds)
     if lb is not None and ub is not None:
         return Transforms.get("logit")(bounds)
