@@ -69,12 +69,8 @@ def test_fit_predict(data_raw: pd.DataFrame, regressor: Regressor):
     log_likelihood = regressor.log_likelihood(df=data_raw)
 
     tnew = np.linspace(-0.1, 1.1, 100)
-    ds_filtered = regressor.predict(
-        df=data_raw, tnew=tnew, smooth=False
-    )
-    ds_smoothed = regressor.predict(
-        df=data_raw, tnew=tnew, smooth=True
-    )
+    ds_filtered = regressor.predict(df=data_raw, tnew=tnew, smooth=False)
+    ds_smoothed = regressor.predict(df=data_raw, tnew=tnew, smooth=True)
 
     assert summary_scipy.fun == pytest.approx(-1.212, rel=1e-2)
     assert log_likelihood == pytest.approx(-0.09889, rel=1e-2)

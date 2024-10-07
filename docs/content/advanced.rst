@@ -158,7 +158,6 @@ inference respectively. An example of implementation is given here :
 .. code-block:: python
 
     from pysip.params.priors import BasePrior, PriorMeta
-    import pymc as pm
     from scipy import stats
 
     class Gamma(BasePrior, metaclass=PriorMeta):
@@ -175,10 +174,8 @@ inference respectively. An example of implementation is given here :
         alpha: float = 3.0
         beta: float = 1.0
         scipy_dist: lambda a, b: stats.gamma(a=a, scale=1.0 / b)
-        pymc_dist: pm.Gamma
 
-The `scipy_dist` attribute is used for the frequentist inference, and the
-`pymc_dist` attribute is used for the bayesian inference. They take function
+The `scipy_dist` attribute is used for the frequentist inference. They take function
 that will be called with the parameters of the prior as positional arguments to
 create the distributions. Usually, you define the parameters to follow one of
 the implementation and give a proxy to the other one, as in the example above.

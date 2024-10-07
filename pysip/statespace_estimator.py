@@ -242,7 +242,7 @@ def _log_likelihood(
 
 
 def _log_likelihood_with_outputs(
-        x0, P0, u, dtu, y, states, weights, use_outputs: bool
+    x0, P0, u, dtu, y, states, weights, use_outputs: bool
 ) -> tuple[float, np.ndarray, np.ndarray]:
     x_out = np.full((y.shape[0], len(x0)), fill_value=np.nan)
     P_out = np.full((y.shape[0], *P0.shape), fill_value=np.nan)
@@ -365,6 +365,7 @@ def _estimate_output(x0, P0, u, dtu, y, states) -> OutputEstimateResult:
 
     return output_res
 
+
 # Check if the environment variable to disable JIT is set
 disable_jit = os.getenv("PYSIP_DISABLE_NUMBA", "0")  # Default is "0" (JIT enabled)
 if disable_jit != "1":
@@ -377,8 +378,11 @@ if disable_jit != "1":
     except ImportError:
         warnings.warn("Numba not installed, using pure python implementation")
 else:
-    warnings.warn("Numba JIT disabled by environment variable, "
-                  "using pure python implementation")
+    warnings.warn(
+        "Numba JIT disabled by environment variable, "
+        "using pure python implementation"
+    )
+
 
 @dataclass
 class KalmanQR:
@@ -432,10 +436,10 @@ class KalmanQR:
         # Check and return
         if len(weights) != n:
             raise ValueError(
-                'The provided weights are not the same length as the time array.'
+                "The provided weights are not the same length as the time array."
             )
         if len(weights.shape) != 1:
-            raise ValueError('The provided weights should be 1D.')
+            raise ValueError("The provided weights should be 1D.")
         return weights
 
     def update(

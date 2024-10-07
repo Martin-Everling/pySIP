@@ -78,13 +78,10 @@ class Matern32(GPModel):
             ]
         )
 
-        q00 = mscale**2 * (
-            1.0 - (dt**2 * lda**2 + (1.0 + dt * lda) ** 2) * _exp**2
-        )
+        q00 = mscale**2 * (1.0 - (dt**2 * lda**2 + (1.0 + dt * lda) ** 2) * _exp**2)
         q01 = 2.0 * mscale**2 * dt**2 * lda**3 * _exp**2
         q11 = mscale**2 * (
-            lda**2
-            - (dt**2 * lda**4 + lda**2 * (1.0 - dt * lda) ** 2) * _exp**2
+            lda**2 - (dt**2 * lda**4 + lda**2 * (1.0 - dt * lda) ** 2) * _exp**2
         )
 
         B0d = np.zeros((self.nx, self.nu))

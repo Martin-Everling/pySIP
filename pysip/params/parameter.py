@@ -49,9 +49,10 @@ class Parameter:
     loc: float = 0.0
     scale: confloat(gt=0) = 1.0
     bounds: Tuple[Optional[float], Optional[float]] = (None, None)
-    transform: ParameterTransform | Literal[
-        "auto", "fixed", "none", "log", "lower", "upper", "logit"
-    ] = "auto"
+    transform: (
+        ParameterTransform
+        | Literal["auto", "fixed", "none", "log", "lower", "upper", "logit"]
+    ) = "auto"
     prior: BasePrior = None
     fixed: bool = False
 

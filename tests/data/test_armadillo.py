@@ -30,7 +30,7 @@ def parameters_armadillo():
         dict(name="Ci", scale=1e6 / sT, bounds=(0, None), prior=LogNormal(1, 1)),
         dict(
             name="sigw_w",
-            scale=1e-2 * sT ** 0.5,
+            scale=1e-2 * sT**0.5,
             bounds=(0, None),
             prior=LogNormal(1, 1),
         ),
@@ -129,9 +129,12 @@ def test_fit_predict(data_armadillo, regressor_armadillo):
 def test_fit_predict_shgo(data_armadillo, regressor_armadillo_bounded):
     regressor_armadillo = copy.deepcopy(regressor_armadillo_bounded)
     summary, corr, scipy_summary = regressor_armadillo.fit(
-        df=data_armadillo, optimizer="shgo", method="L-BFGS-B",
+        df=data_armadillo,
+        optimizer="shgo",
+        method="L-BFGS-B",
     )
     assert scipy_summary.fun == pytest.approx(-316.68688278425225, rel=1e-2)
+
 
 def test_fit_predict_dual_annealing(data_armadillo, regressor_armadillo):
     regressor_armadillo = copy.deepcopy(regressor_armadillo)
@@ -139,6 +142,7 @@ def test_fit_predict_dual_annealing(data_armadillo, regressor_armadillo):
         df=data_armadillo, optimizer="dual_annealing"
     )
     assert scipy_summary.fun == pytest.approx(-316.68812014562525, rel=1e-2)
+
 
 def test_fit_predict_basinhopping(data_armadillo, regressor_armadillo):
     regressor_armadillo = copy.deepcopy(regressor_armadillo)

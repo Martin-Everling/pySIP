@@ -27,7 +27,7 @@ def parameters_armadillo():
         dict(name="Ci", scale=1e6 / sT, bounds=(0, None), prior=LogNormal(1, 1)),
         dict(
             name="sigw_w",
-            scale=1e-2 * sT ** 0.5,
+            scale=1e-2 * sT**0.5,
             bounds=(0, None),
             prior=LogNormal(1, 1),
         ),

@@ -5,15 +5,12 @@ from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
-from multiprocessing import cpu_count
 from typing import Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import pymc as pm
-import pytensor.tensor as pt
 import xarray as xr
-from scipy.optimize import approx_fprime, minimize
+from scipy.optimize import minimize
 import scipy.optimize as scipy_optimize
 
 from .params.parameters import Parameters
@@ -27,51 +24,6 @@ def _make_estimate(theta, data, estimator):
     estimator.ss.parameters.theta_free = theta
     res = estimator.estimate_output(*data)
     return res.y[None, ..., 0]
-
-
-class _FdiffLoglikeGrad(pt.Op):
-    itypes = [pt.dvector]
-    otypes = [pt.dvector]
-
-    def __init__(self, reg: Regressor, df, eps=None):
-        self.estimator = reg.estimator
-        self.data = reg.prepare_data(df)
-        self.eps = eps
-
-    def perform(self, _, inputs, outputs):
-        def _target(eta) -> float:
-            estimator = deepcopy(self.estimator)
-            estimator.ss.parameters.theta_free = eta
-            return estimator.log_likelihood(*self.data)
-
-        (eta,) = inputs  # this will contain my variables
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            outputs[0][0] = approx_fprime(eta, _target, self.eps)
-
-
-class _Loglike(pt.Op):
-    itypes = [pt.dvector]
-    otypes = [pt.dscalar]
-
-    def __init__(self, reg: Regressor, df, eps=None):
-        self.estimator = reg.estimator
-        self.data = reg.prepare_data(df)
-        self.eps = eps
-        self.logpgrad = _FdiffLoglikeGrad(reg, df, eps)
-
-    def perform(self, _, inputs, outputs):
-        estimator = deepcopy(self.estimator)
-        (eta,) = inputs
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            estimator.ss.parameters.theta_free = eta
-            logl = estimator.log_likelihood(*self.data)
-        outputs[0][0] = np.array(logl)
-
-    def grad(self, inputs, g):
-        (eta,) = inputs
-        return [g[0] * self.logpgrad(eta)]
 
 
 @dataclass
@@ -297,7 +249,7 @@ class Regressor:
         k_simulations: int,
         n_simulation: int,
         simulation_weights: np.ndarray | None,
-        alpha: float | None = None
+        alpha: float | None = None,
     ) -> float:
         """Evaluate the negative log-posterior
 
@@ -329,8 +281,9 @@ class Regressor:
         log_likelihood, x, P = estimator.log_likelihood_with_outputs(dt, u, dtu, y)
 
         # Handle the simulations
-        i_start_simulations \
-            = np.floor(np.linspace(0, len(y)-n_simulation, k_simulations)).astype(int)
+        i_start_simulations = np.floor(
+            np.linspace(0, len(y) - n_simulation, k_simulations)
+        ).astype(int)
         log_likelihood_simulations = np.zeros((k_simulations))
         for i_simulation in range(k_simulations):
             i_start_sim = i_start_simulations[i_simulation]
@@ -346,8 +299,8 @@ class Regressor:
                 weights=simulation_weights,
                 use_outputs=False,
             )
-        log_likelihood = (
-                log_likelihood * alpha + (1-alpha) * np.mean(log_likelihood_simulations)
+        log_likelihood = log_likelihood * alpha + (1 - alpha) * np.mean(
+            log_likelihood_simulations
         )
 
         # Determine log posterior
@@ -445,14 +398,23 @@ class Regressor:
             args = (*data, include_prior, include_penalty)
             target = self._target
         elif k_simulations is not None and n_simulation is not None:
-            args = (*data, include_prior, include_penalty, k_simulations, n_simulation,
-                    simulation_weights, alpha)
+            args = (
+                *data,
+                include_prior,
+                include_penalty,
+                k_simulations,
+                n_simulation,
+                simulation_weights,
+                alpha,
+            )
             target = self._target_n_step
         else:
-            raise KeyError('Please provide both a number of simulations '
-                           '"k_simulations" and the simulation length "n_simulation" '
-                           'arguments when including simulations in the target '
-                           'function.')
+            raise KeyError(
+                "Please provide both a number of simulations "
+                '"k_simulations" and the simulation length "n_simulation" '
+                "arguments when including simulations in the target "
+                "function."
+            )
 
         # Minimize/Optimize
         if optimizer_kwargs is None:
@@ -468,8 +430,12 @@ class Regressor:
             )
         elif optimizer.lower() == "shgo":
             # Advised is to run shgo only with all parameters bounded and "L-BFGS-B"
-            all_bounded = all([all([b is not None for b in p.bounds])
-                               for p in self.parameters.parameters_free])
+            all_bounded = all(
+                [
+                    all([b is not None for b in p.bounds])
+                    for p in self.parameters.parameters_free
+                ]
+            )
             if not all_bounded:
                 raise KeyError(
                     "Please make sure all parameters are bounded when running shgo."
@@ -484,8 +450,9 @@ class Regressor:
                 )
 
             # Set defaults
-            optimizer_kwargs["sampling_method"] \
-                = optimizer_kwargs.get("sampling_method", "sobol")
+            optimizer_kwargs["sampling_method"] = optimizer_kwargs.get(
+                "sampling_method", "sobol"
+            )
             # Run
             min_kwargs = {"method": method, "jac": jac, "options": minimize_options}
             results_opt = scipy_optimize.shgo(
@@ -493,7 +460,7 @@ class Regressor:
                 bounds=bounds,
                 args=args,
                 minimizer_kwargs=min_kwargs,
-                **optimizer_kwargs
+                **optimizer_kwargs,
             )
             results = minimize(
                 fun=target,
@@ -516,7 +483,7 @@ class Regressor:
                 args=args,
                 x0=self.parameters.eta_free,
                 minimizer_kwargs=min_kwargs,
-                **optimizer_kwargs
+                **optimizer_kwargs,
             )
             results = minimize(
                 fun=target,
@@ -531,13 +498,16 @@ class Regressor:
             optimizer_kwargs["niter"] = optimizer_kwargs.get("niter", 10)
             # Run
             min_kwargs = {
-                "args": args, "method": method, "jac": jac, "options": minimize_options
+                "args": args,
+                "method": method,
+                "jac": jac,
+                "options": minimize_options,
             }
             results_opt = scipy_optimize.basinhopping(
                 func=target,
                 x0=self.parameters.eta_free,
                 minimizer_kwargs=min_kwargs,
-                **optimizer_kwargs
+                **optimizer_kwargs,
             )
             results = results_opt.lowest_optimization_result
         else:
@@ -753,101 +723,6 @@ class Regressor:
             + self.ss.R,
         )
         return ds
-
-    @property
-    def pymc_model(reg):
-        class PyMCModel(pm.Model):
-            def __init__(self, df):
-                super().__init__()
-                theta = []
-                for name, par in zip(
-                    reg.parameters.names_free, reg.parameters.parameters_free
-                ):
-                    # theta.append(pm.Normal(name, par.eta, 1))
-                    theta.append(par.prior.pymc_dist(name))
-                theta = pt.as_tensor_variable(theta)
-                pm.Potential("likelihood", -_Loglike(reg, df)(theta))
-
-        return PyMCModel
-
-    def sample(self, df, draws=1000, tune=500, chains=4, **kwargs):
-        """Sample from the posterior distribution
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Dataframe containing the inputs and outputs
-        draws : int, optional
-            Number of samples, by default 1000
-        tune : int, optional
-            Number of tuning samples, by default 500
-        chains : int, optional
-            Number of chains, by default 4
-        cores : int, optional
-            Number of cores, by default cpu_count()
-
-        Returns
-        -------
-        arviz.InferenceData
-            Inference data containing the posterior samples
-
-        Notes
-        -----
-        The number of cores is set to the minimum between the number of cores and the
-        number of chains.
-
-        The sample method directly use the `pymc3.sample` method. See the PyMC3
-        documentation for more details.
-        """
-        cores = min(kwargs.pop("cores", cpu_count()), chains)
-        with self.pymc_model(df):
-            self._trace = pm.sample(
-                draws=draws, tune=tune, chains=chains, cores=cores, **kwargs
-            )
-
-        return self.trace
-
-    def prior_predictive(self, df, samples=1000, **kwargs):
-        """Sample from the prior predictive distribution
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Dataframe containing the inputs and outputs
-        samples : int, optional
-            Number of samples, by default 1000
-
-        Returns
-        -------
-        xarray.Dataset
-            Dataset containing the simulated outputs
-
-        """
-        with self.pymc_model(df), warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            self._prior_trace = pm.sample_prior_predictive(samples=samples, **kwargs)
-        parameters = self._prior_trace.prior.to_dataframe().to_numpy()
-        data = self.prepare_data(df)
-        with ProcessPoolExecutor() as executor:
-            results = np.vstack(
-                list(
-                    executor.map(
-                        partial(_make_estimate, data=data, estimator=self.estimator),
-                        parameters,
-                    )
-                )
-            )
-
-        idx_name = df.index.name or "time"
-        return xr.DataArray(
-            results,
-            dims=("draw", idx_name, "outputs"),
-            coords={
-                "draw": np.arange(samples),
-                "outputs": self.outputs,
-                idx_name: df.index,
-            },
-        ).to_dataset("outputs")
 
     def posterior_predictive(self, df, **kwargs):
         """Sample from the posterior predictive distribution

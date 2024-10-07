@@ -1,4 +1,4 @@
-""" Parameter transforms
+"""Parameter transforms
 
 This module contains the different transforms that can be applied to a parameter.
 The transforms are used to transform a parameter value θ to the unconstrained space

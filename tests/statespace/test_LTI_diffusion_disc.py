@@ -119,7 +119,6 @@ def test_disc_LTI(model: StateSpace, random_dt):
     Qd_lyap = discretization.diffusion_lyap(model.A, QQ, ssm.A)
     Qd_kron = discretization.diffusion_kron(model.A, QQ, ssm.A)
 
-
     assert np.allclose(Qd_kron, Qd)
     assert np.allclose(Qd_lyap, Qd)
     assert np.allclose(Qd_mfd, Qd)

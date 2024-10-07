@@ -1,4 +1,5 @@
 """tests for linear algebra utilities"""
+
 import numpy as np
 import pytest
 from scipy.linalg import LinAlgError
@@ -8,7 +9,6 @@ from pysip.utils.math import diff_upper_cholesky, nearest_cholesky
 
 @pytest.mark.parametrize("N", [5, 10, 25, 50])
 def test_nearest_upper_cholesky(N):
-
     S = np.cov(np.random.randn(N, 2 * N))
     S = (S + S.T) / 2.0
     Is = np.eye(S.shape[0])

@@ -362,12 +362,12 @@ class Parameters:
         return np.squeeze(eta0)
 
     def fix_parameters(self, parameters: list[str]):
-        """ Sets a given list of parameter names to fixed. """
+        """Sets a given list of parameter names to fixed."""
         for parameter_name in parameters:
             self.set_parameter(parameter_name, fixed=True)
 
     def free_parameters(self, parameters: list[str]):
-        """ Sets a given list of parameter names to free. """
+        """Sets a given list of parameter names to free."""
         for parameter_name in parameters:
             self.set_parameter(parameter_name, fixed=False)
             if isinstance(self._parameters[parameter_name].transform, FixedTransform):

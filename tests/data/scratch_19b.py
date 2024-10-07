@@ -1,16 +1,12 @@
-import copy
-
 import numpy as np
 import pandas as pd
-import pytest
 
 from pysip.params.prior import LogNormal, Normal
 from pysip.regressors import Regressor
 from pysip.statespace.thermal_network import TwTi_RoRi
 
 
-@pytest.fixture
-def data_armadillo():
+def get_data_armadillo():
     sT = 3600.0 * 24.0
     df = pd.read_csv("data/armadillo/armadillo_data_H2.csv").set_index("Time")
     df.drop(df.index[-1], axis=0, inplace=True)
@@ -18,8 +14,7 @@ def data_armadillo():
     return df
 
 
-@pytest.fixture
-def parameters_armadillo():
+def get_parameters_armadillo():
     sT = 3600.0 * 24.0
     return [
         dict(name="Ro", scale=1e-2, bounds=(0, None), prior=LogNormal(1, 1)),
@@ -41,28 +36,83 @@ def parameters_armadillo():
     ]
 
 
-@pytest.fixture
-def statespace_armadillo(parameters_armadillo):
+def get_parameters_armadillo_bounded():
+    sT = 3600.0 * 24.0
+    return [
+        dict(name="Ro", scale=1e-2, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Ri", scale=1e-3, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Cw", scale=1e7 / sT, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(name="Ci", scale=1e6 / sT, bounds=(0.1, 10.0), prior=LogNormal(1, 1)),
+        dict(
+            name="sigw_w",
+            scale=1e-2 * sT**0.5,
+            bounds=(0.1, 100.0),
+            prior=LogNormal(1, 1),
+        ),
+        dict(name="sigw_i", value=0, transform="fixed"),
+        dict(name="sigv", scale=1e-2, bounds=(0.1, 100.0), prior=LogNormal(1, 1)),
+        dict(name="x0_w", loc=25, scale=5, bounds=(0.1, 10.0), prior=Normal(0, 1)),
+        dict(name="x0_i", value=26.701, transform="fixed"),
+        dict(name="sigx0_w", value=1, transform="fixed"),
+        dict(name="sigx0_i", value=0.1, transform="fixed"),
+    ]
+
+
+def get_statespace_armadillo(parameters_armadillo):
     return TwTi_RoRi(parameters_armadillo, hold_order=1)
 
 
-@pytest.fixture
-def regressor_armadillo(statespace_armadillo: Regressor):
+def get_regressor_armadillo(statespace_armadillo):
     return Regressor(
         ss=statespace_armadillo, outputs="T_int", inputs=["T_ext", "P_hea"]
     )
 
 
-def test_fit_predict_n_step(data_armadillo, regressor_armadillo):
-    regressor_armadillo_1 = copy.deepcopy(regressor_armadillo)
+def main():
+    data_armadillo = get_data_armadillo()
+
+    # Do the normal fit
+    parameters_armadillo_1 = get_parameters_armadillo()
+    statespace_armadillo_1 = get_statespace_armadillo(parameters_armadillo_1)
+    regressor_armadillo_1 = get_regressor_armadillo(statespace_armadillo_1)
+
     summary_1, corr_1, scipy_summary_1 = regressor_armadillo_1.fit(
         df=data_armadillo,
+        include_prior=False,
+        include_penalty=False,
     )
+
     results_1 = regressor_armadillo_1.predict(df=data_armadillo, use_outputs=False)
     y_pred_1 = results_1.y_mean.values
 
+    # BOUNDED
+    parameters_armadillo_1b = get_parameters_armadillo_bounded()
+    statespace_armadillo_1b = get_statespace_armadillo(parameters_armadillo_1b)
+    regressor_armadillo_1b = get_regressor_armadillo(statespace_armadillo_1b)
+
+    summary_1b, corr_1b, scipy_summary_1b = regressor_armadillo_1b.fit(
+        df=data_armadillo,
+        include_prior=False,
+        include_penalty=False,
+    )
+    regressor_armadillo_1b.predict(df=data_armadillo, use_outputs=False)
+
+    parameters_armadillo_1bp = get_parameters_armadillo_bounded()
+    statespace_armadillo_1bp = get_statespace_armadillo(parameters_armadillo_1bp)
+    regressor_armadillo_1bp = get_regressor_armadillo(statespace_armadillo_1bp)
+
+    summary_1bp, corr_1bp, scipy_summary_1bp = regressor_armadillo_1bp.fit(
+        df=data_armadillo,
+        include_prior=False,
+        include_penalty=True,
+    )
+    regressor_armadillo_1bp.predict(df=data_armadillo, use_outputs=False)
+
     # Handle the alternative fit
-    regressor_armadillo_2 = copy.deepcopy(regressor_armadillo)
+    parameters_armadillo_2 = get_parameters_armadillo()
+    statespace_armadillo_2 = get_statespace_armadillo(parameters_armadillo_2)
+    regressor_armadillo_2 = get_regressor_armadillo(statespace_armadillo_2)
+
     summary_2, corr_2, scipy_summary_2 = regressor_armadillo_2.fit(
         df=data_armadillo,
         k_simulations=3,
@@ -72,7 +122,10 @@ def test_fit_predict_n_step(data_armadillo, regressor_armadillo):
     y_pred_2 = results_2.y_mean.values
 
     # Compare with weights
-    regressor_armadillo_3 = copy.deepcopy(regressor_armadillo)
+    parameters_armadillo_3 = get_parameters_armadillo()
+    statespace_armadillo_3 = get_statespace_armadillo(parameters_armadillo_3)
+    regressor_armadillo_3 = get_regressor_armadillo(statespace_armadillo_3)
+
     summary_3, corr_3, scipy_summary_3 = regressor_armadillo_3.fit(
         df=data_armadillo,
         k_simulations=3,
@@ -99,54 +152,16 @@ def test_fit_predict_n_step(data_armadillo, regressor_armadillo):
     print(f"First error 1-step target function: {y_compare['y_error_1'].iloc[1]}")
     print(f"First error n-step target function: {y_compare['y_error_2'].iloc[1]}")
     print(
-        f"First_error n-step weighted target function: {y_compare['y_error_3'].iloc[1]}"
+        f"First_error n-step weighted target function: "
+        f"{y_compare['y_error_3'].iloc[1]}"
     )
 
     print(f"MAE 1-step target function: {y_compare['y_error_1'].abs().mean()}")
     print(f"MAE n-step target function: {y_compare['y_error_2'].abs().mean()}")
     print(f"MAE n-step weighted target function: {y_compare['y_error_3'].abs().mean()}")
 
-    # Compare the prediction error of the first step ahead
-    assert (
-        y_compare["y_error_1"].abs().iloc[1] < y_compare["y_error_2"].abs().iloc[1]
-    ), "The 1-step ahead prediction should be better with a normal fit"
-    assert (
-        y_compare["y_error_1"].abs().iloc[1] < y_compare["y_error_3"].abs().iloc[1]
-    ), "The 1-step ahead prediction should be better with a normal fit"
-    assert (
-        y_compare["y_error_3"].abs().iloc[1] < y_compare["y_error_2"].abs().iloc[1]
-    ), "The 1-step ahead prediction should be better when using weights"
+    pass
 
-    # Compare the MAE of the n-step ahead
-    assert (
-        y_compare["y_error_2"].abs().mean() < y_compare["y_error_1"].abs().mean()
-    ), "The n-step ahead MAE should be better with the simulation fit"
-    assert (
-        y_compare["y_error_3"].abs().mean() < y_compare["y_error_1"].abs().mean()
-    ), "The n-step ahead MAE should be better with the simulation fit"
-    assert (
-        y_compare["y_error_2"].abs().mean() < y_compare["y_error_3"].abs().mean()
-    ), "The n-step ahead MAE should be better without using weights"
 
-    # Check individual model fits
-    assert y_compare["y_error_1"].iloc[1] == pytest.approx(
-        0.017802806421535422, rel=1e-2
-    )
-    assert y_compare["y_error_2"].iloc[1] == pytest.approx(
-        -0.11795478859595576, rel=1e-2
-    )
-    assert y_compare["y_error_3"].iloc[1] == pytest.approx(
-        -0.08907018449982829, rel=1e-2
-    )
-    assert y_compare["y_error_1"].abs().mean() == pytest.approx(
-        0.6578543247342358, rel=1e-2
-    )
-    assert y_compare["y_error_2"].abs().mean() == pytest.approx(
-        0.5903941009254126, rel=1e-2
-    )
-    assert y_compare["y_error_3"].abs().mean() == pytest.approx(
-        0.6111865346966693, rel=1e-2
-    )
-    assert scipy_summary_1.fun == pytest.approx(-316.687870, rel=1e-2)
-    assert scipy_summary_2.fun == pytest.approx(-177.826059, rel=1e-2)
-    assert scipy_summary_3.fun == pytest.approx(-176.416467, rel=1e-2)
+if __name__ == "__main__":
+    main()

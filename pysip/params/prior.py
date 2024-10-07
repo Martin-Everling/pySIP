@@ -1,7 +1,6 @@
 from inspect import Parameter, Signature
 from makefun import with_signature
 import numpy as np
-import pymc as pm
 from scipy import stats
 
 __ALL__ = ["Normal", "Gamma", "Beta", "InverseGamma", "LogNormal"]
@@ -10,17 +9,11 @@ __ALL__ = ["Normal", "Gamma", "Beta", "InverseGamma", "LogNormal"]
 class BasePrior:
     """Prior class template
 
-    This contains both the scipy distribution (to compute standard numerical operations)
-    as well as the pymc distribution factory (to be used with the bayesian inference
-    engine).
+    This contains the scipy distribution (to compute standard numerical operations) factory.
     """
 
     @property
     def scipy_dist(self) -> stats.rv_continuous:
-        raise NotImplementedError
-
-    @property
-    def pymc_dist(self) -> type:
         raise NotImplementedError
 
     @property
@@ -75,7 +68,6 @@ class PriorMeta(type):
     def __new__(cls, name, bases, attrs):
         annots = attrs.get("__annotations__")
         scipy_dist = annots.pop("scipy_dist")
-        pymc_dist = annots.pop("pymc_dist")
         dist_args = annots
         defaults = {
             k: default
@@ -85,11 +77,6 @@ class PriorMeta(type):
 
         def make_scipy_dist(self):
             return scipy_dist(*[getattr(self, k) for k in dist_args.keys()])
-
-        def make_pymc_dist_factory(self):
-            return lambda name: pymc_dist(
-                name, *[getattr(self, k) for k in dist_args.keys()]
-            )
 
         sign = Signature(
             parameters=[
@@ -117,7 +104,6 @@ class PriorMeta(type):
         attrs["__init__"] = __init__
         attrs["shape_parameters"] = property(shape_parameters)
         attrs["scipy_dist"] = property(make_scipy_dist)
-        attrs["pymc_dist"] = property(make_pymc_dist_factory)
         return super().__new__(cls, name, bases, attrs)
 
     def params_repr(self):
@@ -138,7 +124,6 @@ class Normal(BasePrior, metaclass=PriorMeta):
     mu: float = 0.0
     sigma: float = 1.0
     scipy_dist: stats.norm
-    pymc_dist: pm.Normal
 
 
 class Gamma(BasePrior, metaclass=PriorMeta):
@@ -155,7 +140,6 @@ class Gamma(BasePrior, metaclass=PriorMeta):
     alpha: float = 3.0
     beta: float = 1.0
     scipy_dist: lambda a, b: stats.gamma(a=a, scale=1.0 / b)
-    pymc_dist: pm.Gamma
 
 
 class Beta(BasePrior, metaclass=PriorMeta):
@@ -172,7 +156,6 @@ class Beta(BasePrior, metaclass=PriorMeta):
     alpha: float = 3.0
     beta: float = 3.0
     scipy_dist: stats.beta
-    pymc_dist: pm.Beta
 
 
 class InverseGamma(BasePrior, metaclass=PriorMeta):
@@ -189,7 +172,6 @@ class InverseGamma(BasePrior, metaclass=PriorMeta):
     alpha: float = 3.0
     beta: float = 1.0
     scipy_dist: lambda a, b: stats.invgamma(a=a, scale=b)
-    pymc_dist: pm.InverseGamma
 
 
 class LogNormal(BasePrior, metaclass=PriorMeta):
@@ -206,7 +188,6 @@ class LogNormal(BasePrior, metaclass=PriorMeta):
     mu: float = 0.0
     sigma: float = 1.0
     scipy_dist: lambda mu, sigma: stats.lognorm(scale=np.exp(mu), s=sigma)
-    pymc_dist: pm.Lognormal
 
 
 class Uniform(BasePrior, metaclass=PriorMeta):
@@ -223,4 +204,3 @@ class Uniform(BasePrior, metaclass=PriorMeta):
     lower: float = 0.0
     upper: float = 1.0
     scipy_dist: lambda lower, upper: stats.uniform(loc=lower, scale=upper - lower)
-    pymc_dist: pm.Uniform

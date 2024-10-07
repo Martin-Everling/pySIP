@@ -1,4 +1,5 @@
 """Statistic functions module"""
+
 import numpy as np
 import scipy as sp
 from scipy.signal import correlate

@@ -19,8 +19,10 @@ defaults = namedtuple("Defaults", "name value scale bounds prior theta")(
 def parameter_fixture(transform, **kwargs):
     kwargs = {**{"transform": transform}, **defaults._asdict(), **kwargs}
     parameter = Parameter(**kwargs)
+
     def fixture() -> Parameter:
         return parameter
+
     return pytest.fixture(fixture)
 
 

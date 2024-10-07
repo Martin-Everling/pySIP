@@ -35,9 +35,9 @@ def test_repr(parameters, parameters_beta, parameters_with_transforms):
     assert (
         parameters.__repr__()
         == """Parameters alpha
-Parameter(name='a', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-Parameter(name='b', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
+Parameter(name='a', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+Parameter(name='b', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
 """  # noqa
     )
 
@@ -47,16 +47,16 @@ Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transfor
         == """Parameters alpha__beta__transform
 * alpha__beta
     * alpha
-        Parameter(name='a', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-        Parameter(name='b', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-        Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
+        Parameter(name='a', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+        Parameter(name='b', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+        Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
     * beta
-        Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-        Parameter(name='d', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
-        Parameter(name='e', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None)
+        Parameter(name='c', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+        Parameter(name='d', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
+        Parameter(name='e', value=0.0, loc=0.0, scale=1.0, bounds=(None, None), transform=none, prior=None, fixed=False)
 * transform
-    Parameter(name='a', value=1.0, loc=0.0, scale=1.0, bounds=(None, None), transform=log, prior=None)
-    Parameter(name='b', value=2.0, loc=0.0, scale=1.0, bounds=(1.0, 3.0), transform=logit, prior=None)
+    Parameter(name='a', value=1.0, loc=0.0, scale=1.0, bounds=(None, None), transform=log, prior=None, fixed=False)
+    Parameter(name='b', value=2.0, loc=0.0, scale=1.0, bounds=(1.0, 3.0), transform=logit, prior=None, fixed=False)
 """  # noqa
     )
 
@@ -127,11 +127,11 @@ def test_unknown_parameter(parameters):
 def test_fix_free(parameters):
     print(parameters.free)
     new_parameters = copy.deepcopy(parameters)
-    new_parameters.fix_parameters(['a', 'b'])
-    new_parameters.set_parameter('a', transform='fixed')
+    new_parameters.fix_parameters(["a", "b"])
+    new_parameters.set_parameter("a", transform="fixed")
 
     assert parameters.free == [True, True, True]
     assert new_parameters.free == [False, False, True]
 
-    new_parameters.free_parameters(['a'])
+    new_parameters.free_parameters(["a"])
     assert new_parameters.free == [True, False, True]
