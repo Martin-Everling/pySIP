@@ -737,7 +737,7 @@ class KalmanQR:
         x0: np.ndarray | None = None,
         P0: np.ndarray | None = None,
     ) -> SimulationResults:
-        """ Simulate the data using the state space model. The Kalman filter is not
+        r""" Simulate the data using the state space model. The Kalman filter is not
         involved in this process.
 
         The formula reads:
