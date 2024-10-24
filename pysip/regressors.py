@@ -705,9 +705,16 @@ class Regressor:
         idx_name = df.index.name or "time"
         if tnew is not None:
             ds = ds.sel(**{idx_name: tnew})
+
+        if tnew is None:
+            u = itp_df[self.inputs]
+        else:
+            u = itp_df.loc[tnew, self.inputs]
+        u_reshaped = np.expand_dims(u.values, axis=2)
         ds["y_mean"] = (
             (idx_name, "outputs"),
-            (self.ss.C @ ds.x.values.reshape(-1, self.ss.nx, 1))[..., 0],
+            (self.ss.C @ ds.x.values.reshape(-1, self.ss.nx, 1))[..., 0]
+            + (self.ss.D @ u_reshaped)[..., 0],
         )
 
         ds["y_std"] = (

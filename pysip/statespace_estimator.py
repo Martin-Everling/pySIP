@@ -337,7 +337,7 @@ def _simulate(x0, u, dtu, states) -> SimulationResults:
         u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
-        y = states_i.C @ x - states_i.D @ u_i
+        y = states_i.C @ x + states_i.D @ u_i
         x = (
             states_i.A @ x
             + states_i.B0 @ u_i
@@ -360,7 +360,7 @@ def _estimate_output(x0, P0, u, dtu, y, states) -> OutputEstimateResult:
         x = res_filter.x[i]
         P = res_filter.P[i]
         states_i = _unpack_states(states, i)
-        output_res.y[i] = states_i.C @ x - states_i.D @ u[i]
+        output_res.y[i] = states_i.C @ x + states_i.D @ u[i]
         output_res.y_std[i] = np.sqrt(states_i.C @ P @ states_i.C.T) + states_i.R
 
     return output_res
