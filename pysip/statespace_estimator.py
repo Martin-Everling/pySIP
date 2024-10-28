@@ -209,7 +209,7 @@ def _unpack_states(states, i) -> States:
 
 
 def _log_likelihood(
-    x0, P0, u, dtu, y, states, weights, use_outputs: bool
+    x0, P0, u, dtu, y, states, weights, output_weights, use_outputs: bool
 ) -> tuple[float]:
     x = x0
     P = P0
@@ -245,8 +245,8 @@ def _log_likelihood(
                 ) * weights[i]
             else:
                 # Apply mask to k and S for valid indices
-                k_valid = k[valid_mask]
-                S_valid = S[valid_mask][:, valid_mask]
+                k_valid = k[valid_mask] * output_weights[valid_mask]
+                S_valid = S[valid_mask][:, valid_mask] * output_weights[valid_mask]
                 log_likelihood += (
                     np.linalg.slogdet(S_valid)[1] + 0.5 * (k_valid.T @ k_valid)[0, 0]
                 ) * weights[i]
@@ -259,7 +259,7 @@ def _log_likelihood(
 
 
 def _log_likelihood_with_outputs(
-    x0, P0, u, dtu, y, states, weights, use_outputs: bool
+    x0, P0, u, dtu, y, states, weights, output_weights, use_outputs: bool
 ) -> tuple[float, np.ndarray, np.ndarray]:
     x_out = np.full((y.shape[0], len(x0)), fill_value=np.nan)
     P_out = np.full((y.shape[0], *P0.shape), fill_value=np.nan)
@@ -270,29 +270,43 @@ def _log_likelihood_with_outputs(
     dtype = states.A.dtype
     _Arru = np.zeros((nx + ny, nx + ny), dtype=dtype)
     log_likelihood = 0.5 * n_timesteps * math.log(2.0 * math.pi)
+
     for i in range(n_timesteps):
         y_i = np.ascontiguousarray(y)[i].reshape(-1, 1)
         u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
+
+        # Perform update with NaN masking
         x_kal, P_kal, k, S = _update(
             states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
         )
+
+        # Update state and covariance if outputs are valid
         if use_outputs and ~np.isnan(x_kal).any() and ~np.isnan(P_kal).any():
             x, P = x_kal, P_kal
 
-        if ny == 1:
-            Si = S[0, 0]
-            log_likelihood += (
-                math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
-            ) * weights[i]
-        else:
-            log_likelihood += (
-                np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
-            ) * weights[i]
+        # Mask valid indices for log likelihood calculation
+        valid_mask = ~np.isnan(y_i).flatten()
+        if np.any(valid_mask):
+            # Simpler calculation for single output
+            if ny == 1:
+                Si = S[0, 0]
+                log_likelihood += (
+                    math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
+                ) * weights[i]
+            else:
+                # Apply mask to k and S for valid indices
+                k_valid = k[valid_mask] * output_weights[valid_mask]
+                S_valid = S[valid_mask][:, valid_mask] * output_weights[valid_mask]
+                log_likelihood += (
+                    np.linalg.slogdet(S_valid)[1] + 0.5 * (k_valid.T @ k_valid)[0, 0]
+                ) * weights[i]
+
         # Store step
         x_out[i, :] = x.flatten()
         P_out[i, :] = P0
+
         # Calculate next step
         x, P = _predict(
             states_i.A, states_i.B0, states_i.B1, states_i.Q, x, P, u_i, dtu_i
@@ -446,18 +460,26 @@ class KalmanQR:
         return tuple([x0, P0, *vars, states])
 
     @staticmethod
-    def _validate_weights(weights, n):
+    def _validate_weights(weights, output_weights, n_t, n_y):
         # Provide a non-None default
         if weights is None:
-            weights = np.full((n), fill_value=1.0)
+            weights = np.full((n_t), fill_value=1.0)
+        if output_weights is None:
+            output_weights = np.full((n_y), fill_value=1.0)
         # Check and return
-        if len(weights) != n:
+        if len(weights) != n_t:
             raise ValueError(
                 "The provided weights are not the same length as the time array."
             )
+        if len(output_weights) != n_y:
+            raise ValueError(
+                "The provided output weights are not the correct length as the number of outputs."
+            )
         if len(weights.shape) != 1:
             raise ValueError("The provided weights should be 1D.")
-        return weights
+        if len(output_weights.shape) != 1:
+            raise ValueError("The provided output weights should be 1D.")
+        return weights, output_weights
 
     def update(
         self,
@@ -546,6 +568,7 @@ class KalmanQR:
         x0: np.ndarray | None = None,
         P0: np.ndarray | None = None,
         weights: np.ndarray | None = None,
+        output_weights: np.ndarray | None = None,
         use_outputs: bool = True,
     ) -> float:
         """Compute the log-likelihood of the model.
@@ -579,8 +602,13 @@ class KalmanQR:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
             x0, P0, u, dtu, y, states = self._proxy_params(dt, (u, dtu, y), x0, P0)
-            weights = self._validate_weights(weights, len(u))
-            return _log_likelihood(x0, P0, u, dtu, y, states, weights, use_outputs)
+            ny = states.C.shape[0]
+            weights, output_weights = self._validate_weights(
+                weights, output_weights, len(u), ny
+            )
+            return _log_likelihood(
+                x0, P0, u, dtu, y, states, weights, output_weights, use_outputs
+            )
 
     def log_likelihood_with_outputs(
         self,
@@ -591,6 +619,7 @@ class KalmanQR:
         x0: np.ndarray | None = None,
         P0: np.ndarray | None = None,
         weights: np.ndarray | None = None,
+        output_weights: np.ndarray | None = None,
         use_outputs: bool = True,
     ) -> tuple[float, np.ndarray, np.ndarray]:
         """Compute the log-likelihood of the model.
@@ -629,9 +658,12 @@ class KalmanQR:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=NumbaPerformanceWarning)
             x0, P0, u, dtu, y, states = self._proxy_params(dt, (u, dtu, y), x0, P0)
-            weights = self._validate_weights(weights, len(u))
+            ny = states.C.shape[0]
+            weights, output_weights = self._validate_weights(
+                weights, output_weights, len(u), ny
+            )
             return _log_likelihood_with_outputs(
-                x0, P0, u, dtu, y, states, weights, use_outputs
+                x0, P0, u, dtu, y, states, weights, output_weights, use_outputs
             )
 
     def filtering(

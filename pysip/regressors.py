@@ -203,6 +203,7 @@ class Regressor:
         y: np.ndarray,
         include_prior,
         include_penalty,
+        output_weights: np.ndarray | None,
     ) -> float:
         """Evaluate the negative log-posterior
 
@@ -226,7 +227,9 @@ class Regressor:
         """
         estimator = deepcopy(self.estimator)
         estimator.ss.parameters.eta_free = eta
-        log_likelihood = estimator.log_likelihood(dt, u, dtu, y)
+        log_likelihood = estimator.log_likelihood(
+            dt, u, dtu, y, output_weights=output_weights
+        )
 
         # Determine log posterior
         log_posterior = log_likelihood
@@ -249,6 +252,7 @@ class Regressor:
         k_simulations: int,
         n_simulation: int,
         simulation_weights: np.ndarray | None,
+        output_weights: np.ndarray | None,
         alpha: float | None = None,
     ) -> float:
         """Evaluate the negative log-posterior
@@ -297,6 +301,7 @@ class Regressor:
                 x[i_start_sim, :].reshape([-1, 1]),
                 P[i_start_sim, :],
                 weights=simulation_weights,
+                output_weights=output_weights,
                 use_outputs=False,
             )
         log_likelihood = log_likelihood * alpha + (1 - alpha) * np.mean(
@@ -328,6 +333,7 @@ class Regressor:
         k_simulations: Optional[int] = None,
         n_simulation: Optional[int] = None,
         simulation_weights: Optional[np.ndarray] = None,
+        output_weights: Optional[np.ndarray] = None,
         alpha: float | None = None,
         **minimize_options,
     ) -> Union[pd.DataFrame, pd.DataFrame, dict]:
@@ -395,7 +401,7 @@ class Regressor:
 
         # Set arguments and target function
         if k_simulations is None and n_simulation is None:
-            args = (*data, include_prior, include_penalty)
+            args = (*data, include_prior, include_penalty, output_weights)
             target = self._target
         elif k_simulations is not None and n_simulation is not None:
             args = (
@@ -405,6 +411,7 @@ class Regressor:
                 k_simulations,
                 n_simulation,
                 simulation_weights,
+                output_weights,
                 alpha,
             )
             target = self._target_n_step
