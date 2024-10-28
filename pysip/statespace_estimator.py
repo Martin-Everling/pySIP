@@ -150,15 +150,18 @@ def _update(
     S = r_fact[:ny, :ny]
     # Handle NaNs in y
     valid_mask = ~np.isnan(y).flatten()
-    if np.any(valid_mask) and not np.all(valid_mask):
+    if not np.all(valid_mask):
         valid_indices = np.nonzero(valid_mask)[0]
         # If any valid, but not all => Only update according to available measurements
         C_valid = C[valid_mask]
         D_valid = D[valid_mask]
         S_valid = S[valid_indices][:, valid_indices]
         y_valid = y[valid_mask]
-        k = _solve_triu_inplace(S_valid, y_valid - C_valid @ x - D_valid @ u)
-        x = x + r_fact[:ny, ny:].T[:, valid_mask] @ k
+        k = np.full((ny, 1), fill_value=np.nan)
+        k[valid_mask, :] = _solve_triu_inplace(
+            S_valid, y_valid - C_valid @ x - D_valid @ u
+        )
+        x = x + r_fact[:ny, ny:].T[:, valid_mask] @ k[valid_mask, :]
     else:
         # In any other case, just continue (NaN values will propagate in x and k)
         if ny == 1:
@@ -215,26 +218,40 @@ def _log_likelihood(
     dtype = states.A.dtype
     _Arru = np.zeros((nx + ny, nx + ny), dtype=dtype)
     log_likelihood = 0.5 * n_timesteps * math.log(2.0 * math.pi)
+
     for i in range(n_timesteps):
         y_i = np.ascontiguousarray(y)[i].reshape(-1, 1)
         u_i = np.ascontiguousarray(u)[i].reshape(-1, 1)
         dtu_i = np.ascontiguousarray(dtu)[i].reshape(-1, 1)
         states_i = _unpack_states(states, i)
+
+        # Perform update with NaN masking
         x_kal, P_kal, k, S = _update(
             states_i.C, states_i.D, states_i.R, x, P, u_i, y_i, _Arru
         )
+
+        # Update state and covariance if outputs are valid
         if use_outputs and ~np.isnan(x_kal).any() and ~np.isnan(P_kal).any():
             x, P = x_kal, P_kal
 
-        if ny == 1:
-            Si = S[0, 0]
-            log_likelihood += (
-                math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
-            ) * weights[i]
-        else:
-            log_likelihood += (
-                np.linalg.slogdet(S)[1] + 0.5 * (k.T @ k)[0, 0]
-            ) * weights[i]
+        # Mask valid indices for log likelihood calculation
+        valid_mask = ~np.isnan(y_i).flatten()
+        if np.any(valid_mask):
+            # Simpler calculation for single output
+            if ny == 1:
+                Si = S[0, 0]
+                log_likelihood += (
+                    math.log(abs(Si.real) + abs(Si.imag)) + 0.5 * k[0, 0] ** 2
+                ) * weights[i]
+            else:
+                # Apply mask to k and S for valid indices
+                k_valid = k[valid_mask]
+                S_valid = S[valid_mask][:, valid_mask]
+                log_likelihood += (
+                    np.linalg.slogdet(S_valid)[1] + 0.5 * (k_valid.T @ k_valid)[0, 0]
+                ) * weights[i]
+
+        # Prediction step
         x, P = _predict(
             states_i.A, states_i.B0, states_i.B1, states_i.Q, x, P, u_i, dtu_i
         )
