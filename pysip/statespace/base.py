@@ -43,6 +43,7 @@ class Par(Enum):
     MAGNITUDE_SCALE = ("Magnitude scale", "any")
     LENGTH_SCALE = ("Length scale", "any")
     PERIOD = ("Period", "any")
+    MASS_FLOW = ("Mass flow rate", "kg/s")
 
 
 @dataclass

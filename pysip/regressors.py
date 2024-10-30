@@ -697,8 +697,6 @@ class Regressor:
 
         """
 
-        if self.ss.ny > 1:
-            raise NotImplementedError
         if tnew is not None:
             itp_df = pd.concat(
                 [df, df.reindex(tnew).drop(df.index, errors="ignore")]
@@ -734,7 +732,7 @@ class Regressor:
                     self.ss.C.T,
                 )
             )
-            + self.ss.R,
+            + self.ss.R[np.eye(len(self.ss.R), dtype=bool)],
         )
         return ds
 
